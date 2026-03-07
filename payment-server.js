@@ -1264,4 +1264,65 @@ app.listen(CONFIG.PORT, () => {
     console.log('='.repeat(60));
 });
 
+// Test email endpoint
+app.get('/test-email', async (req, res) => {
+    const testEmail = req.query.email || process.env.EMAIL_USER;
+    
+    if (!testEmail) {
+        return res.json({
+            success: false,
+            error: 'No email provided. Use ?email=your@email.com'
+        });
+    }
+    
+    try {
+        console.log('Testing email to:', testEmail);
+        console.log('Email config:', {
+            host: CONFIG.EMAIL.HOST,
+            port: CONFIG.EMAIL.PORT,
+            user: process.env.EMAIL_USER,
+            passSet: !!process.env.EMAIL_PASSWORD,
+            passLength: process.env.EMAIL_PASSWORD?.length || 0
+        });
+        
+        const transporter = getEmailTransporter();
+        
+        // Verify connection
+        await transporter.verify();
+        console.log('✓ SMTP connection verified');
+        
+        // Send test email
+        const info = await transporter.sendMail({
+            from: CONFIG.EMAIL.FROM,
+            to: testEmail,
+            subject: 'NIVTO Email Test',
+            html: '<h2>✅ Email Working!</h2><p>If you received this, the email system is configured correctly.</p>',
+            text: 'Email test successful!'
+        });
+        
+        console.log('✓ Email sent:', info.messageId);
+        
+        res.json({
+            success: true,
+            message: 'Email sent successfully',
+            messageId: info.messageId,
+            to: testEmail
+        });
+        
+    } catch (error) {
+        console.error('❌ Email test failed:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            code: error.code,
+            config: {
+                host: CONFIG.EMAIL.HOST,
+                port: CONFIG.EMAIL.PORT,
+                user: process.env.EMAIL_USER,
+                passSet: !!process.env.EMAIL_PASSWORD
+            }
+        });
+    }
+});
+
 module.exports = app;
