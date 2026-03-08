@@ -49,7 +49,8 @@ console.log('Email config check on startup:', {
     user: process.env.EMAIL_USER || 'NOT SET',
     pass: process.env.EMAIL_PASSWORD ? 'SET (length: ' + process.env.EMAIL_PASSWORD.length + ')' : 'NOT SET',
     host: CONFIG.EMAIL.HOST,
-    port: CONFIG.EMAIL.PORT
+    port: CONFIG.EMAIL.PORT,
+    secure: CONFIG.EMAIL.SECURE
 });
 
 // Create a function to get a fresh transporter with current env vars
@@ -201,6 +202,11 @@ The NIVTO Team
     console.log('Sending email with auth:', {
         user: transporter.options.auth?.user || 'NOT SET',
         passLength: transporter.options.auth?.pass?.length || 0
+    });
+    console.log('SMTP config:', {
+        host: transporter.options.host,
+        port: transporter.options.port,
+        secure: transporter.options.secure
     });
     
     return transporter.sendMail(mailOptions);
@@ -835,10 +841,20 @@ app.get('/payment-complete', async (req, res) => {
         
         console.log('Sending license key for payment:', { email, licenseKey, plan: planName });
         
-        // Send email
-        await sendLicenseEmail(email, name, licenseKey, expiryStr, planName);
-        
-        console.log(`✅ License sent successfully: ${email} - ${licenseKey}`);
+        // Send email with detailed error handling
+        try {
+            await sendLicenseEmail(email, name, licenseKey, expiryStr, planName);
+            console.log(`✅ License sent successfully: ${email} - ${licenseKey}`);
+        } catch (emailError) {
+            console.error('❌ EMAIL SEND FAILED:', {
+                error: emailError.message,
+                code: emailError.code,
+                command: emailError.command,
+                stack: emailError.stack
+            });
+            // Continue anyway - show success page with license key
+            console.log('⚠️ Continuing despite email failure - license key will be shown on success page');
+        }
         
         // Clean up session
         delete global.checkoutSessions[sessionId];
