@@ -31,8 +31,8 @@ const CONFIG = {
     
     EMAIL: {
         HOST: process.env.EMAIL_HOST || 'smtp.gmail.com',
-        PORT: 587,
-        SECURE: false,
+        PORT: 465,
+        SECURE: true,
         AUTH: {
             USER: process.env.EMAIL_USER,
             PASS: process.env.EMAIL_PASSWORD
