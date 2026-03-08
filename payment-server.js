@@ -5,7 +5,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const path = require('path');
 
 // Load .env from the same directory as this script
@@ -30,14 +30,8 @@ const CONFIG = {
     },
     
     EMAIL: {
-        HOST: process.env.EMAIL_HOST || 'smtp.gmail.com',
-        PORT: 465,
-        SECURE: true,
-        AUTH: {
-            USER: process.env.EMAIL_USER,
-            PASS: process.env.EMAIL_PASSWORD
-        },
-        FROM: process.env.EMAIL_FROM || 'NIVTO Staff Manager <noreply@nivto.com>'
+        RESEND_API_KEY: process.env.RESEND_API_KEY || 're_U4EJdTYG_JaHz66t45n1pWGN2dV2yBnc2',
+        FROM: process.env.EMAIL_FROM || 'NIVTO Staff Manager <onboarding@resend.dev>'
     }
 };
 
@@ -46,25 +40,12 @@ const CONFIG = {
 // ============================================================================
 
 console.log('Email config check on startup:', {
-    user: process.env.EMAIL_USER || 'NOT SET',
-    pass: process.env.EMAIL_PASSWORD ? 'SET (length: ' + process.env.EMAIL_PASSWORD.length + ')' : 'NOT SET',
-    host: CONFIG.EMAIL.HOST,
-    port: CONFIG.EMAIL.PORT,
-    secure: CONFIG.EMAIL.SECURE
+    apiKey: CONFIG.EMAIL.RESEND_API_KEY ? 'SET (starts with: ' + CONFIG.EMAIL.RESEND_API_KEY.substring(0, 8) + '...)' : 'NOT SET',
+    from: CONFIG.EMAIL.FROM
 });
 
-// Create a function to get a fresh transporter with current env vars
-function getEmailTransporter() {
-    return nodemailer.createTransport({
-        host: CONFIG.EMAIL.HOST,
-        port: CONFIG.EMAIL.PORT,
-        secure: CONFIG.EMAIL.SECURE,
-        auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASSWORD
-        }
-    });
-}
+// Initialize Resend
+const resend = new Resend(CONFIG.EMAIL.RESEND_API_KEY);
 
 // ============================================================================
 // LICENSE KEY GENERATION
@@ -174,7 +155,9 @@ function getLicenseEmailHtml(customerName, licenseKey, expiryDate, plan) {
 async function sendLicenseEmail(recipientEmail, customerName, licenseKey, expiryDate, planName) {
     const htmlContent = getLicenseEmailHtml(customerName, licenseKey, expiryDate, planName);
     
-    const mailOptions = {
+    console.log('Sending email via Resend API to:', recipientEmail);
+    
+    const { data, error } = await resend.emails.send({
         from: CONFIG.EMAIL.FROM,
         to: recipientEmail,
         subject: '🎉 Your NIVTO Staff Manager License Key',
@@ -195,21 +178,15 @@ Need help? Contact us at 074 353 2291
 Best regards,
 The NIVTO Team
         `
-    };
-    
-    // Get fresh transporter with current credentials
-    const transporter = getEmailTransporter();
-    console.log('Sending email with auth:', {
-        user: transporter.options.auth?.user || 'NOT SET',
-        passLength: transporter.options.auth?.pass?.length || 0
-    });
-    console.log('SMTP config:', {
-        host: transporter.options.host,
-        port: transporter.options.port,
-        secure: transporter.options.secure
     });
     
-    return transporter.sendMail(mailOptions);
+    if (error) {
+        console.error('❌ Resend API error:', error);
+        throw error;
+    }
+    
+    console.log('✅ Email sent via Resend, ID:', data?.id);
+    return data;
 }
 
 // ============================================================================
@@ -1282,7 +1259,7 @@ app.listen(CONFIG.PORT, () => {
 
 // Test email endpoint
 app.get('/test-email', async (req, res) => {
-    const testEmail = req.query.email || process.env.EMAIL_USER;
+    const testEmail = req.query.email || 'willie.barrows@gmail.com';
     
     if (!testEmail) {
         return res.json({
@@ -1292,37 +1269,38 @@ app.get('/test-email', async (req, res) => {
     }
     
     try {
-        console.log('Testing email to:', testEmail);
+        console.log('Testing Resend API email to:', testEmail);
         console.log('Email config:', {
-            host: CONFIG.EMAIL.HOST,
-            port: CONFIG.EMAIL.PORT,
-            user: process.env.EMAIL_USER,
-            passSet: !!process.env.EMAIL_PASSWORD,
-            passLength: process.env.EMAIL_PASSWORD?.length || 0
+            apiKey: CONFIG.EMAIL.RESEND_API_KEY ? 'SET' : 'NOT SET',
+            from: CONFIG.EMAIL.FROM
         });
         
-        const transporter = getEmailTransporter();
-        
-        // Verify connection
-        await transporter.verify();
-        console.log('✓ SMTP connection verified');
-        
-        // Send test email
-        const info = await transporter.sendMail({
+        // Send test email via Resend
+        const { data, error } = await resend.emails.send({
             from: CONFIG.EMAIL.FROM,
             to: testEmail,
-            subject: 'NIVTO Email Test',
-            html: '<h2>✅ Email Working!</h2><p>If you received this, the email system is configured correctly.</p>',
-            text: 'Email test successful!'
+            subject: 'NIVTO Email Test - Resend API',
+            html: '<div style="font-family: Arial; padding: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px;"><h2>✅ Email Working!</h2><p>If you received this, the Resend API is configured correctly.</p><p><strong>Service:</strong> Resend API<br><strong>No SMTP ports needed!</strong></p></div>',
+            text: 'Email test successful via Resend API!'
         });
         
-        console.log('✓ Email sent:', info.messageId);
+        if (error) {
+            console.error('❌ Resend API error:', error);
+            return res.status(500).json({
+                success: false,
+                error: error.message,
+                service: 'Resend API'
+            });
+        }
+        
+        console.log('✅ Email sent via Resend, ID:', data.id);
         
         res.json({
             success: true,
-            message: 'Email sent successfully',
-            messageId: info.messageId,
-            to: testEmail
+            message: 'Email sent successfully via Resend API',
+            emailId: data.id,
+            to: testEmail,
+            service: 'Resend'
         });
         
     } catch (error) {
@@ -1330,13 +1308,7 @@ app.get('/test-email', async (req, res) => {
         res.status(500).json({
             success: false,
             error: error.message,
-            code: error.code,
-            config: {
-                host: CONFIG.EMAIL.HOST,
-                port: CONFIG.EMAIL.PORT,
-                user: process.env.EMAIL_USER,
-                passSet: !!process.env.EMAIL_PASSWORD
-            }
+            service: 'Resend API'
         });
     }
 });
